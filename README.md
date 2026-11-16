@@ -13,7 +13,7 @@ python -m pytest -q                                   # offline; fake helpdesk t
 python -m support_agent eval                          # score on GET /examples; sends nothing
 python -m support_agent run                           # THE command: handle all open tickets
 ```
-Also: `run --dry-run`, `status`, `reset --yes`. Each run writes `logs/run-*.jsonl` (one line per ticket) and `logs/run-*.md` (English review).
+Also: `run --dry-run`, `status`, `reset --yes`, `costs` (cost per ticket for the newest run). Each run writes `logs/run-*.jsonl` (one line per ticket, with its model calls, tokens and cost) and `logs/run-*.md` (English review).
 
 ## Decisions
 

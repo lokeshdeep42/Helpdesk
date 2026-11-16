@@ -3,6 +3,7 @@
   python -m support_agent run              handle every open ticket (the one command)
   python -m support_agent run --dry-run    decide, but send nothing
   python -m support_agent eval --tag NAME  score the agent on GET /examples
+  python -m support_agent costs [LOG]      cost per ticket for the newest run (or the given logs/run-*.jsonl)
   python -m support_agent status           helpdesk status
   python -m support_agent reset --yes      re-open all practice tickets (and clear the local journal)
 """
@@ -51,9 +52,22 @@ def main(argv: list[str] | None = None) -> int:
     e = sub.add_parser("eval", help="score on the labelled examples")
     e.add_argument("--tag", default="eval")
     sub.add_parser("status")
+    c = sub.add_parser("costs", help="cost per ticket for a run (offline, reads the run log)")
+    c.add_argument("log", nargs="?", default=None, help="a logs/run-*.jsonl file (default: the newest)")
     rs = sub.add_parser("reset", help="POST /practice/reset")
     rs.add_argument("--yes", action="store_true", help="confirm: this re-opens all 30 practice tickets")
     args = ap.parse_args(argv)
+
+    if args.cmd == "costs":
+        from pathlib import Path
+
+        from .costs import newest_log, report
+        log = Path(args.log) if args.log else newest_log(LOG_DIR)
+        if not log or not log.exists():
+            print("no run log found; run `python -m support_agent run --dry-run` first", file=sys.stderr)
+            return 1
+        print(report(log))
+        return 0
 
     try:
         if args.cmd == "status":
@@ -84,12 +98,15 @@ def main(argv: list[str] | None = None) -> int:
         from .runner import run
         print(f"models: {_chain(s)}")
         summary = run(client, llm, faq, Journal(STATE_PATH), LOG_DIR, min_confidence=s.min_confidence,
-                      verifier_model=s.verifier_model, dry_run=args.dry_run, limit=args.limit)
+                      verifier_model=s.verifier_model, dry_run=args.dry_run, limit=args.limit,
+                      prices=_prices(s), currency=s.price_currency)
         u = llm.usage
         print(f"llm: {u.calls} calls, {u.input_tokens} input + {u.output_tokens} output tokens")
         if summary["open"]:
             from .evaluate import cost_per_100
             c = cost_per_100(u.by_model, summary["open"], _prices(s), s.price_currency)
+            print(f"cost this run: {s.price_currency} {summary['cost']:.4f} for {summary['open']} ticket(s); "
+                  "per ticket: python -m support_agent costs")
             print("cost: " + "; ".join(c["calculation"]))
         _report_fallbacks(llm)
         return 1 if summary["failed"] else 0

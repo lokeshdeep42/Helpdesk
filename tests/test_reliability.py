@@ -83,6 +83,31 @@ def test_full_run_answers_each_ticket_exactly_once(tmp_path):
     assert sorted(t for t, _ in desk.posts) == [f"T{i:03d}" for i in range(1, 13)]
 
 
+def test_every_logged_ticket_carries_its_own_cost(tmp_path):
+    from support_agent.costs import report
+    from support_agent.llm import Usage
+
+    class CountingLLM(FakeLLM):
+        def __init__(self):
+            super().__init__(lambda user: reply_decision())
+            self.usage = Usage()
+
+        def complete_json(self, system, user, *, model=None):
+            self.usage.add(2_000, 300, "p:checker" if model else "p:drafter")
+            return super().complete_json(system, user, model=model)
+
+    desk, client, _ = make(3)
+    prices = {"p:drafter": (0.80, 4.00), "p:checker": (0.15, 0.60)}
+    summary = runner.run(client, CountingLLM(), load_faq(), Journal(tmp_path / "j.json"), tmp_path,
+                         min_confidence=0.75, verifier_model="checker", prices=prices, **QUIET)
+    log = next(tmp_path.glob("run-*.jsonl"))
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    # each ticket: drafter 2000 x 0.80 + 300 x 4.00 = 2800, checker 2000 x 0.15 + 300 x 0.60 = 480 -> / 1M
+    assert [r["cost"] for r in rows] == [0.00328] * 3 and all(r["llm_calls"] == 2 for r in rows)
+    assert summary["cost"] == round(3 * 0.00328, 6)
+    assert "per 100 tickets:  USD 0.3280" in report(log)
+
+
 def test_crash_then_rerun_continues_without_duplicates(tmp_path):
     desk, client, _ = make(6)
     journal_path = tmp_path / "j.json"

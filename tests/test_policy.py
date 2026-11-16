@@ -188,6 +188,17 @@ def test_short_dutch_ticket_keeps_model_language():
     assert decide(reply_decision(action="handoff", language="nl"), t).payload["language"] == "nl"
 
 
+def test_cost_of_one_ticket_is_the_usage_difference_priced_per_model():
+    from support_agent.costs import spent
+    before = {"g:qwen": {"calls": 4, "input_tokens": 9_000, "output_tokens": 900}}
+    after = {"g:qwen": {"calls": 5, "input_tokens": 12_000, "output_tokens": 1_200},
+             "g:oss": {"calls": 1, "input_tokens": 1_000, "output_tokens": 200}}
+    u = spent(before, after, {"g:qwen": (0.80, 4.00), "g:oss": (0.15, 0.60)}, "USD")
+    # qwen: 3000 x 0.80 + 300 x 4.00 = 3600 ; oss: 1000 x 0.15 + 200 x 0.60 = 270 ; / 1M
+    assert (u["llm_calls"], u["input_tokens"], u["output_tokens"]) == (2, 4_000, 500)
+    assert u["cost"] == 0.00387 and u["models"] == ["g:qwen", "g:oss"]
+
+
 def test_cost_per_100_tickets_calculation():
     from support_agent.evaluate import cost_per_100
     by_model = {"a": {"calls": 10, "input_tokens": 30_000, "output_tokens": 3_000},

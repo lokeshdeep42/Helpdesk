@@ -1,4 +1,5 @@
-"""One thin wrapper over any OpenAI-compatible chat endpoint (Gemini, Groq, OpenRouter, Ollama, OpenAI).
+"""One thin wrapper over any OpenAI-compatible chat endpoint (Gemini, Groq, OpenRouter, Ollama, OpenAI),
+plus a fallback chain over several of them.
 
 It returns parsed JSON and counts tokens so we can report cost. Swapping providers is an .env change.
 """
@@ -22,7 +23,8 @@ class LLMUnavailable(LLMError):
 
 
 _UNAVAILABLE = ("RateLimitError", "APIConnectionError", "APITimeoutError", "InternalServerError",
-                "ServiceUnavailableError", "AuthenticationError", "PermissionDeniedError")
+                "ServiceUnavailableError", "AuthenticationError", "PermissionDeniedError",
+                "NotFoundError")  # model not pulled / retired: a config problem, never the ticket's fault
 
 
 def _wrap(exc: Exception) -> LLMError:
@@ -56,7 +58,8 @@ class Usage:
 
 class OpenAICompatLLM:
     def __init__(self, base_url: str, api_key: str, model: str, *, min_interval: float = 0.0,
-                 temperature: float = 0.0, max_retries: int = 6):
+                 temperature: float = 0.0, max_retries: int = 6, usage: Usage | None = None,
+                 label: str = ""):
         from openai import OpenAI  # imported here so tests do not need the package configured
 
         self._client = OpenAI(base_url=base_url, api_key=api_key, max_retries=max_retries, timeout=90)
@@ -64,7 +67,8 @@ class OpenAICompatLLM:
         self.temperature = temperature
         self.min_interval = min_interval
         self._last_call = 0.0
-        self.usage = Usage()
+        self.usage = usage if usage is not None else Usage()
+        self.label = label  # usage is counted as "label:model" so two providers never share a price
 
     def _create(self, kwargs: dict):
         try:
@@ -85,8 +89,9 @@ class OpenAICompatLLM:
             self._pace()
             resp = self._create(dict(model=model or self.model, messages=messages, temperature=self.temperature))
             if getattr(resp, "usage", None):
+                used = model or self.model
                 self.usage.add(resp.usage.prompt_tokens or 0, resp.usage.completion_tokens or 0,
-                               model or self.model)
+                               f"{self.label}:{used}" if self.label else used)
             if not getattr(resp, "choices", None):
                 raise LLMError("LLM returned no choices")
             text = (resp.choices[0].message.content or "").strip()
@@ -106,6 +111,82 @@ class OpenAICompatLLM:
         if wait > 0:
             time.sleep(wait)
         self._last_call = time.monotonic()
+
+
+@dataclass
+class Route:
+    """One provider in the fallback chain: its client and the model it uses for each role."""
+    name: str
+    llm: JsonLLM
+    model: str           # drafts the decision
+    verifier_model: str  # checks the drafted reply
+
+
+class FallbackLLM:
+    """Try each route in order; a route that is unavailable (quota, outage, missing model) is skipped for
+    the rest of the run, so a spent daily quota costs one failed call, not one per ticket.
+
+    The pipeline asks for the drafter with model=None and for the checker with model=<anything>; each
+    route maps that role to its own model. If every route is down, LLMUnavailable is raised and the
+    ticket stays open, exactly as with a single provider.
+    """
+
+    def __init__(self, routes: list[Route], *, usage: Usage | None = None, echo=print):
+        if not routes:
+            raise ValueError("FallbackLLM needs at least one route")
+        self.routes = routes
+        self.usage = usage if usage is not None else Usage()
+        self.model = f"{routes[0].name}:{routes[0].model}"
+        self.down: dict[str, str] = {}  # "route:model" -> why it was dropped
+        self._echo = echo
+        self._local = threading.local()
+        self._lock = threading.Lock()
+
+    @property
+    def last_used(self) -> str:
+        """Which "route:model" answered the most recent call on this thread (for the audit trail)."""
+        return getattr(self._local, "last_used", "")
+
+    def complete_json(self, system: str, user: str, *, model: str | None = None) -> dict:
+        checker = model is not None
+        for r in self.routes:
+            m = r.verifier_model if checker else r.model
+            key = f"{r.name}:{m}"
+            if key in self.down:
+                continue
+            try:
+                out = r.llm.complete_json(system, user, model=m)
+            except LLMUnavailable as exc:
+                with self._lock:
+                    self.down[key] = str(exc)[:200]
+                self._echo(f"llm: {key} unavailable for the rest of this run, falling back ({str(exc)[:120]})")
+                continue
+            self._local.last_used = key
+            return out
+        raise LLMUnavailable("every model in the fallback chain is unavailable: "
+                             + " | ".join(f"{k}: {v}" for k, v in self.down.items()))
+
+
+def build_llm(providers, echo=print) -> FallbackLLM:
+    """One FallbackLLM over config.Provider entries (primary first). Usage is shared and keyed "name:model"."""
+    usage, providers = Usage(), list(providers)
+    routes = []
+    for i, p in enumerate(providers):
+        # A route with a fallback behind it gives up sooner: waiting out a spent daily quota helps nobody.
+        retries = 6 if i == len(providers) - 1 else 3
+        client = OpenAICompatLLM(p.base_url, p.api_key, p.model, min_interval=p.min_interval,
+                                 max_retries=retries, usage=usage, label=p.name)
+        routes.append(Route(p.name, client, p.model, p.verifier_model))
+    return FallbackLLM(routes, usage=usage, echo=echo)
+
+
+def prices_for(providers) -> dict[str, tuple[float, float]]:
+    """Price table keyed the same way as Usage.by_model ("name:model")."""
+    prices: dict[str, tuple[float, float]] = {}
+    for p in providers:
+        prices[f"{p.name}:{p.verifier_model}"] = (p.verifier_price_in_per_mtok, p.verifier_price_out_per_mtok)
+        prices[f"{p.name}:{p.model}"] = (p.price_in_per_mtok, p.price_out_per_mtok)  # drafter wins if same model
+    return prices
 
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)

@@ -1,6 +1,6 @@
 # Roosterly support ticket agent
 
-Handles every open helpdesk ticket once: `reply` (customer's language, only from the FAQ), `handoff` (English note) or `close` (spam, empty). Python; any OpenAI-compatible model. I use Groq: `qwen/qwen3.8-27b` decides and drafts, `openai/gpt-oss-120b` checks.
+Handles every open helpdesk ticket once: `reply` (customer's language, only from the FAQ), `handoff` (English note) or `close` (spam, empty). Python; any OpenAI-compatible model, with fallbacks. I use Gemini (`gemini-3.5-flash` decides and drafts, `gemini-flash-lite-latest` checks), then Groq (`qwen/qwen3.8-27b` / `openai/gpt-oss-120b`), then a local Ollama model.
 
 ## How to run
 
@@ -39,7 +39,8 @@ Also: `run --dry-run`, `status`, `reset --yes`. Each run writes `logs/run-*.json
 - **503:** up to 8 attempts with exponential backoff and jitter. Safe, because nothing was saved.
 - **429:** we pace at 4 calls/s (the limit is 5); on a 429 we wait `Retry-After`.
 - **409:** never retried. We only work on open tickets, and if a POST times out we `GET` the ticket before trying again.
-- **Crash:** `state/journal.json` (atomic writes) records *decided → sending → done*. A re-run reuses decisions made before the crash and looks up any ticket left in *sending*. The tests crash the agent right after the server saved an answer. One failing ticket doesn't stop the others. If the model is unavailable (quota or outage), the run stops and leaves the rest open, because a fallback handoff would close them with a useless note.
+- **Crash:** `state/journal.json` (atomic writes) records *decided → sending → done*. A re-run reuses decisions made before the crash and looks up any ticket left in *sending*. The tests crash the agent right after the server saved an answer. One failing ticket doesn't stop the others.
+- **Model unavailable** (quota, outage, model missing): the next model in `LLM_FALLBACKS` takes over, and the failed one is skipped for the rest of the run. Drafter and checker fall back separately, and each decision logs which model drafted and checked it. Invalid output is not a reason to switch: that ticket goes to a human. If every model is down, the run stops and leaves the rest open, because a fallback handoff would close them with a useless note.
 - **Security:** keys come from the environment (`.env` is gitignored). Payment details are redacted before the model sees them and scrubbed from logs, and a draft containing them is blocked. Model output is validated against the allowed values. Replies may only link to FAQ domains.
 
 ## Eval and fix
@@ -51,6 +52,9 @@ The eval runs the production pipeline on the 10 labelled examples (Nordavo's lab
 | before | 0 | 4/6 | 8/10 | 8/10 | 10/10 | 10/10 |
 | after, run 1 | 0 | 6/6 | 10/10 | 10/10 | 10/10 | 10/10 |
 | after, run 2 | 0 | 5/6 | 9/10 | 10/10 | 10/10 | 10/10 |
+| Gemini (same prompts) | 0 | 6/6 | 10/10 | 10/10 | 9/10 | 10/10 |
+
+Runs 1–3 are on Groq. The Gemini run used no fallback; its one miss is E09's category, still correctly handed off.
 
 **Problem:** the agent was too strict about what counts as "answered by the FAQ".
 - E01 (crash on iOS 15) was handed off as P2, though F12 explains the cause.
@@ -60,11 +64,11 @@ The eval runs the production pipeline on the 10 labelled examples (Nordavo's lab
 
 The miss in run 2 was a malformed checker output that held a correct reply back (safe). The check is now retried once when its output is malformed. The model varies between runs even at temperature 0, so I report both runs.
 
-**Cost per 100 tickets:** measured in the "after" eval with both calls on qwen, at Groq's list price ($0.80/M in, $4.00/M out). 100 × (3,042 × 0.80 + 353 × 4.00) / 1,000,000 = **$0.38**. The checker now runs on gpt-oss-120b ($0.15/$0.60), which lowers this, and every run prints its own calculation. Everything ran on Groq's free tier; at list prices my estimate for all runs together is about $0.25.
+**Cost per 100 tickets:** measured in the "after" eval with both calls on qwen, at Groq's list price ($0.80/M in, $4.00/M out). 100 × (3,042 × 0.80 + 353 × 4.00) / 1,000,000 = **$0.38**. The checker now runs on gpt-oss-120b ($0.15/$0.60), which lowers this, and every run prints its own calculation. Everything ran on Groq's free tier; at list prices my estimate for all runs together is about $0.25. The Gemini run used about 2,500 tokens per ticket on the free tier; fill in `PRICE_*` from Google's pricing page to get its paid cost.
 
 ## What I would improve
 
 - **Next step:**
   - More labelled tickets, and every eval run 3× (one example is 10 points, and the model varies).
-  - Groq's free tier (200k tokens/day per model) ran out during my first 30-ticket dry run. A real 200-tickets-a-week client needs a paid tier, which would cost under $1 a week.
+  - Groq's free tier (200k tokens/day per model) ran out during my first 30-ticket dry run; the fallback chain now covers that, but free tiers also get overloaded (Gemini's newest Flash models returned 503 "high demand" on the day I switched). A real 200-tickets-a-week client needs a paid tier, which would cost under $1 a week.
 - **A rule I would change:** "contract changes always go to a human" overlaps with F05 ("upgrade any time"). I'd ask the client whether an upgrade counts as a contract change, so that the agent and the team draw the same line.

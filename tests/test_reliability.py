@@ -88,7 +88,7 @@ def test_crash_then_rerun_continues_without_duplicates(tmp_path):
     journal_path = tmp_path / "j.json"
     llm = _llm()
 
-    class Crash(Exception):
+    class Crash(BaseException):  # like a kill or Ctrl-C: deliberately not caught per ticket
         pass
 
     real_submit = client.submit
@@ -147,3 +147,48 @@ def test_log_has_one_line_per_ticket_and_no_payment_details(tmp_path):
     assert "NL91" not in everything and "4111" not in everything
     assert "NL91" not in json.dumps(desk.handled)          # nor in what we sent
     assert desk.handled["T001"]["action"] == "handoff"     # refund: always a human
+
+
+# --- regressions found by the independent review -------------------------------------------------
+
+def test_unexpected_error_in_one_ticket_does_not_stop_the_run(tmp_path):
+    desk, client, _ = make(3)
+
+    def script(user):
+        if "T002" in user or "boom" in user:
+            raise KeyError("model client blew up")
+        return reply_decision()
+
+    desk.tickets["T002"]["body"] = "boom"
+    summary = runner.run(client, FakeLLM(script), load_faq(), Journal(tmp_path / "j.json"), tmp_path,
+                         min_confidence=0.75, **QUIET)
+    assert summary["failed"] == 1 and summary["sent"] == 2
+    assert "T002" not in desk.handled                       # left open for the next run
+
+
+def test_rejected_payload_is_decided_again_next_run(tmp_path):
+    desk, client, _ = make(1)
+    j = Journal(tmp_path / "j.json")
+    j.put("T001", status="decided", hash=content_hash(desk.tickets["T001"]), action="reply",
+          payload={"language": "nl", "category": "question", "priority": "P4", "reason": "r"}, audit={})
+    s1 = runner.run(client, _llm(), load_faq(), j, tmp_path, min_confidence=0.75, **QUIET)
+    assert s1["failed"] == 1                                # 422: draft_reply missing
+    s2 = runner.run(client, _llm(), load_faq(), Journal(tmp_path / "j.json"), tmp_path,
+                    min_confidence=0.75, **QUIET)
+    assert s2["sent"] == 1 and s2["reused_decision"] == 0
+
+
+def test_corrupt_journal_does_not_block_a_run(tmp_path):
+    (tmp_path / "j.json").write_text("{not json", encoding="utf-8")
+    desk, client, _ = make(1)
+    summary = runner.run(client, _llm(), load_faq(), Journal(tmp_path / "j.json"), tmp_path,
+                         min_confidence=0.75, **QUIET)
+    assert summary["sent"] == 1
+
+
+def test_is_handled_ignores_empty_placeholders():
+    from support_agent.helpdesk import is_handled
+    assert is_handled({"id": "T1", "status": "handled"})
+    assert not is_handled({"id": "T1", "status": "open", "handling": {"action": "reply"}})
+    assert not is_handled({"id": "T1", "handling": {}, "decision": None})
+    assert is_handled({"id": "T1", "handling": {"action": "reply"}})

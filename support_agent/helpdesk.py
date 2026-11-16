@@ -13,6 +13,7 @@ import random
 import threading
 import time
 from typing import Any, Callable
+from urllib.parse import quote
 
 import httpx
 
@@ -87,7 +88,7 @@ class HelpdeskClient:
             self.stats["calls"] += 1
             try:
                 resp = self._http.request(method, path, params=params, json=json)
-            except httpx.TransportError as exc:  # timeouts, connection resets
+            except httpx.HTTPError as exc:  # timeouts, connection resets, protocol errors
                 self.stats["network_errors"] += 1
                 if method != "GET":
                     raise AmbiguousWrite(f"{method} {path}: {type(exc).__name__}") from exc
@@ -96,7 +97,13 @@ class HelpdeskClient:
                 continue
 
             if resp.status_code < 300:
-                return resp.json() if resp.content else {}
+                if not resp.content:
+                    return {}
+                try:
+                    return resp.json()
+                except ValueError as exc:
+                    raise HelpdeskError(f"{method} {path}: HTTP {resp.status_code} but not JSON",
+                                        resp.status_code) from exc
             body = _safe_json(resp)
             code = body.get("error") if isinstance(body, dict) else None
             if resp.status_code == 503:
@@ -125,21 +132,27 @@ class HelpdeskClient:
         return data.get("examples", data) if isinstance(data, dict) else data
 
     def get_ticket(self, ticket_id: str) -> dict:
-        return self._request("GET", f"/tickets/{ticket_id}")
+        return self._request("GET", f"/tickets/{quote(str(ticket_id), safe='')}")
 
     def open_tickets(self) -> list[dict]:
         """All open tickets. We collect every page first, then work, so handling tickets cannot
         shift the pages under us."""
-        tickets, cursor = [], None
+        tickets: dict[str, dict] = {}
+        cursor, seen_cursors = None, set()
         while True:
             params = {"limit": 10, "status": "open"}
             if cursor:
                 params["cursor"] = cursor
             page = self._request("GET", "/tickets", params=params)
-            tickets.extend(page.get("tickets", []))
+            if not isinstance(page, dict):
+                raise HelpdeskError("GET /tickets: unexpected response shape")
+            for t in page.get("tickets") or []:
+                if isinstance(t, dict) and t.get("id"):
+                    tickets.setdefault(str(t["id"]), t)  # de-duplicate across pages
             cursor = page.get("next_cursor")
-            if not cursor:
-                return tickets
+            if not cursor or cursor in seen_cursors:  # guard against a cursor that never ends
+                return list(tickets.values())
+            seen_cursors.add(cursor)
 
     def reset_practice(self) -> dict:
         return self._request("POST", "/practice/reset")
@@ -149,7 +162,7 @@ class HelpdeskClient:
         before trying again, so a retry can never produce a second answer."""
         if action not in ACTIONS:
             raise ValueError(f"unknown action {action!r}")
-        path = f"/tickets/{ticket_id}/{action}"
+        path = f"/tickets/{quote(str(ticket_id), safe='')}/{action}"
         for _ in range(3):
             try:
                 return self._request("POST", path, json=payload)
@@ -168,10 +181,17 @@ def is_handled(ticket: dict) -> bool:
         return False
     inner = ticket.get("ticket") if isinstance(ticket.get("ticket"), dict) else ticket
     status = str(inner.get("status") or ticket.get("status") or "").lower()
-    if status and status != "open":
-        return True
-    return bool(ticket.get("handled") or ticket.get("handling") or ticket.get("decision")
-                or inner.get("handled") or inner.get("decision"))
+    if status:
+        return status != "open"
+    # No status field: only a recorded action counts, so an empty placeholder never hides a ticket.
+    for src in (ticket, inner):
+        for key in ("handling", "decision", "handled"):
+            v = src.get(key)
+            if isinstance(v, dict) and v.get("action"):
+                return True
+            if v is True:
+                return True
+    return False
 
 
 def _safe_json(resp: httpx.Response) -> Any:

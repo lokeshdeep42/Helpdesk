@@ -46,20 +46,27 @@ class OpenAICompatLLM:
         self._last_call = 0.0
         self.usage = Usage()
 
+    def _create(self, kwargs: dict):
+        try:
+            return self._client.chat.completions.create(response_format={"type": "json_object"}, **kwargs)
+        except Exception as exc:  # some providers reject response_format; then try plain text once
+            if "response_format" not in str(exc).lower() and "json" not in str(exc).lower():
+                raise LLMError(f"LLM call failed: {type(exc).__name__}: {str(exc)[:200]}") from exc
+        try:
+            return self._client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            raise LLMError(f"LLM call failed: {type(exc).__name__}: {str(exc)[:200]}") from exc
+
     def complete_json(self, system: str, user: str, *, model: str | None = None) -> dict:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         last_problem = ""
         for _ in range(2):  # one retry if the model returns something that is not JSON
             self._pace()
-            kwargs = dict(model=model or self.model, messages=messages, temperature=self.temperature)
-            try:
-                resp = self._client.chat.completions.create(response_format={"type": "json_object"}, **kwargs)
-            except Exception as exc:  # some providers reject response_format; fall back to plain text
-                if "response_format" not in str(exc).lower() and "json" not in str(exc).lower():
-                    raise LLMError(f"LLM call failed: {type(exc).__name__}: {exc}") from exc
-                resp = self._client.chat.completions.create(**kwargs)
-            if resp.usage:
+            resp = self._create(dict(model=model or self.model, messages=messages, temperature=self.temperature))
+            if getattr(resp, "usage", None):
                 self.usage.add(resp.usage.prompt_tokens or 0, resp.usage.completion_tokens or 0)
+            if not getattr(resp, "choices", None):
+                raise LLMError("LLM returned no choices")
             text = (resp.choices[0].message.content or "").strip()
             try:
                 return parse_json_object(text)

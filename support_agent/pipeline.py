@@ -117,7 +117,7 @@ def decide(ticket: dict, llm: JsonLLM, faq: Faq, *, min_confidence: float = 0.75
                                                           "unsupported_claims", "unsafe_content", "explanation")}
         except LLMError as exc:
             audit["check_error"] = str(exc)[:200]
-    blockers = policy.reply_blockers(d, faq, verdict, min_confidence)
+    blockers = policy.reply_blockers(d, faq, verdict, min_confidence, ticket_text=f"{subject}\n{body}")
     if blockers:
         audit["reply_blockers"] = blockers
         return handoff("Agent drafted a reply but held it back: " + "; ".join(blockers)[:300])

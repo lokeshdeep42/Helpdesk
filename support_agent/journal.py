@@ -24,10 +24,20 @@ class Journal:
         self.path = path
         self._data: dict[str, dict] = {}
         if path.exists():
-            self._data = json.loads(path.read_text(encoding="utf-8") or "{}")
+            try:
+                self._data = json.loads(path.read_text(encoding="utf-8") or "{}")
+            except ValueError:
+                # Unreadable journal: start empty. Still safe, because the helpdesk only lists open
+                # tickets and answers a second attempt with 409.
+                path.replace(path.with_suffix(".corrupt"))
+                self._data = {}
 
     def get(self, ticket_id: str) -> dict | None:
         return self._data.get(ticket_id)
+
+    def drop(self, ticket_id: str) -> None:
+        self._data.pop(ticket_id, None)
+        self._save()
 
     def put(self, ticket_id: str, **fields) -> None:
         entry = self._data.setdefault(ticket_id, {})

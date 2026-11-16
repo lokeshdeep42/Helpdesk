@@ -49,11 +49,11 @@ class RunLog:
                  f"- **Customer wants:** {a.get('summary_en', '(empty ticket)')}",
                  f"- **Reason:** {p['reason']}"]
         if decision.action == "reply":
-            parts += [f"- **Draft ({p['language']}):** {p['draft_reply']}",
+            parts += [f"- **Draft ({p.get('language')}):** {p.get('draft_reply', '')}",
                       f"- **Back-translation:** {a.get('back_translation_en', '')}",
                       f"- **Checker:** {(a.get('check') or {}).get('explanation', '')}"]
         if decision.action == "handoff":
-            parts.append(f"- **Handoff note:** {p['handoff_note']}")
+            parts.append(f"- **Handoff note:** {p.get('handoff_note', '')}")
         with self.review.open("a", encoding="utf-8") as f:
             f.write(scrub("\n".join(parts)) + "\n\n")
 
@@ -64,15 +64,15 @@ def run(client: HelpdeskClient, llm: JsonLLM, faq: Faq, journal: Journal, log_di
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log = RunLog(log_dir, run_id, dry_run)
     tickets = client.open_tickets()
-    if limit:
+    if limit is not None:
         tickets = tickets[:limit]
     echo(f"run {run_id}: {len(tickets)} open ticket(s){' [dry run]' if dry_run else ''}")
     summary = {"run": run_id, "open": len(tickets), "reply": 0, "handoff": 0, "close": 0,
                "sent": 0, "already_handled": 0, "failed": 0, "reused_decision": 0}
 
-    for ticket in tickets:
+    def handle(ticket: dict, started: float) -> None:
+        """One ticket, start to finish: decide (or reuse a decision), send once, log once."""
         tid = str(ticket["id"])
-        started = time.monotonic()
         h = content_hash(ticket)
         entry = journal.get(tid)
         if entry and (entry.get("status") == "done" or entry.get("hash") != h):
@@ -84,18 +84,14 @@ def run(client: HelpdeskClient, llm: JsonLLM, faq: Faq, journal: Journal, log_di
             summary["reused_decision"] += 1
             if entry.get("status") == "sending" and is_handled(client.get_ticket(tid)):
                 journal.put(tid, status="done")
-                _finish(log, decision, "already_handled_before_crash", started, summary, echo)
-                continue
+                return _finish(log, decision, "already_handled_before_crash", started, summary, echo)
         else:
             decision = pipeline.decide(ticket, llm, faq, min_confidence=min_confidence,
                                        verifier_model=verifier_model)
-            if not dry_run:
-                journal.put(tid, status="decided", hash=h, action=decision.action,
-                            payload=decision.payload, audit=decision.audit)
-
-        if dry_run:
-            _finish(log, decision, "dry_run", started, summary, echo)
-            continue
+            if dry_run:
+                return _finish(log, decision, "dry_run", started, summary, echo)
+            journal.put(tid, status="decided", hash=h, action=decision.action,
+                        payload=decision.payload, audit=decision.audit)
 
         journal.put(tid, status="sending")
         try:
@@ -106,8 +102,24 @@ def run(client: HelpdeskClient, llm: JsonLLM, faq: Faq, journal: Journal, log_di
             outcome = "already_handled"  # an earlier run answered it: never send twice
             journal.put(tid, status="done")
         except HelpdeskError as exc:
-            outcome = f"failed: {exc}"[:300]  # stays 'sending'; the next run checks before sending
+            outcome = f"failed: {exc}"[:300]
+            if exc.status and 400 <= exc.status < 500:
+                journal.drop(tid)  # the helpdesk rejected our decision: decide again next run
+            elif exc.status == 503 or "gave up" in str(exc):
+                journal.put(tid, status="decided")  # 503 means nothing was saved: resend the same
+            # otherwise (connection kept failing) it stays 'sending': the next run looks it up first
         _finish(log, decision, outcome, started, summary, echo)
+
+    for ticket in tickets:
+        started = time.monotonic()
+        try:
+            handle(ticket, started)
+        except Exception as exc:  # one bad ticket must never stop the others
+            summary["failed"] += 1
+            tid = str(ticket.get("id"))
+            log.line({"ticket": tid, "outcome": f"failed: {type(exc).__name__}: {exc}"[:300],
+                      "seconds": round(time.monotonic() - started, 2)})
+            echo(f"  {tid}: FAILED {type(exc).__name__}: {str(exc)[:120]} (left open; re-run to retry)")
 
     summary["helpdesk"] = dict(client.stats)
     echo(f"done: {json.dumps(summary)}")

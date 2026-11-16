@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 TRIGGERS = (
     "refund_or_disputed_charge",
@@ -99,10 +100,16 @@ verdict is "pass" only if the draft is in the customer's language, answers what 
 and unsupported_claims and unsafe_content are both empty. Greetings and sign-offs are not claims."""
 
 
+_OUR_TAGS = re.compile(r"<\s*(/?)\s*(ticket|draft_reply|help_centre)", re.IGNORECASE)
+
+
+def neutralise(s: str) -> str:
+    """Customer text (and drafts) cannot open or close our own tags, in any case or spacing."""
+    return _OUR_TAGS.sub(lambda m: f"&lt;{m.group(1)}{m.group(2)}", s or "")
+
+
 def _ticket_block(ticket: dict, body: str, subject: str) -> str:
-    # Neutralise anything that looks like our own tags inside customer text.
-    def clean(s: str) -> str:
-        return (s or "").replace("<ticket", "&lt;ticket").replace("</ticket", "&lt;/ticket")
+    clean = neutralise
 
     return (
         "<ticket>\n"
@@ -128,7 +135,7 @@ def verify_messages(faq_text: str, ticket: dict, subject: str, body: str,
         f"The customer wrote in: {language}\n\n"
         + _ticket_block(ticket, body, subject)
         + "\n\n<draft_reply>\n"
-        + draft.replace("</draft_reply", "&lt;/draft_reply")
+        + neutralise(draft)
         + "\n</draft_reply>"
     )
     return system, user

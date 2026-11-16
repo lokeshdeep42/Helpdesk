@@ -58,7 +58,7 @@ def keyword_triggers(text: str) -> list[str]:
 
 def is_empty(ticket: dict) -> bool:
     text = f"{ticket.get('subject') or ''} {ticket.get('body') or ''}"
-    return not re.search(r"[A-Za-z0-9À-ÿ]", text)
+    return not any(ch.isalnum() for ch in text)  # any script counts, not only Latin
 
 
 def apply_priority_floor(priority: str, triggers: set[str]) -> str:
@@ -68,6 +68,12 @@ def apply_priority_floor(priority: str, triggers: set[str]) -> str:
     if triggers & {"refund_or_disputed_charge", "cancellation_or_contract_change"} and priority in ("P3", "P4"):
         return "P2"
     return priority
+
+
+def _as_list(value) -> list:
+    if value is None or value == "":
+        return []
+    return list(value) if isinstance(value, (list, tuple)) else [value]
 
 
 def normalise(raw: dict) -> dict:
@@ -93,8 +99,8 @@ def normalise(raw: dict) -> dict:
         conf = float(raw.get("confidence", 0))
     except (TypeError, ValueError):
         conf = 0.0
-    triggers = [t for t in (raw.get("escalation_triggers") or []) if t in TRIGGERS]
-    faq_ids = [str(f).upper() for f in (raw.get("faq_ids") or [])]
+    triggers = [t for t in _as_list(raw.get("escalation_triggers")) if isinstance(t, str) and t in TRIGGERS]
+    faq_ids = [str(f).upper() for f in _as_list(raw.get("faq_ids"))]
     return {
         "language": lang, "category": cat, "priority": prio, "action": action,
         "confidence": max(0.0, min(1.0, conf)),
@@ -110,9 +116,12 @@ def normalise(raw: dict) -> dict:
     }
 
 
-def reply_blockers(d: dict, faq: Faq, verdict: dict | None, min_confidence: float) -> list[str]:
+def reply_blockers(d: dict, faq: Faq, verdict: dict | None, min_confidence: float,
+                   ticket_text: str = "") -> list[str]:
     """Every reason not to send this draft to the customer. Empty list = safe to send."""
     b = []
+    if language.matches(ticket_text, d["language"]) is False:
+        b.append(f"customer did not write in {d['language']} (language check on the ticket)")
     if not d["draft_reply"]:
         b.append("no draft")
     if not d["faq_ids"] or any(f not in faq.entries for f in d["faq_ids"]):
@@ -138,7 +147,7 @@ def reply_blockers(d: dict, faq: Faq, verdict: dict | None, min_confidence: floa
         if verdict.get("draft_language") not in (None, d["language"]):
             b.append(f"reply check says draft is in {verdict.get('draft_language')}")
         if verdict.get("unsupported_claims"):
-            b.append("unsupported claims: " + "; ".join(map(str, verdict["unsupported_claims"]))[:200])
+            b.append("unsupported claims: " + "; ".join(map(str, _as_list(verdict["unsupported_claims"])))[:200])
         if verdict.get("unsafe_content"):
-            b.append("unsafe content: " + "; ".join(map(str, verdict["unsafe_content"]))[:200])
+            b.append("unsafe content: " + "; ".join(map(str, _as_list(verdict["unsafe_content"])))[:200])
     return b

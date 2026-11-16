@@ -37,6 +37,11 @@ def detect(text: str) -> tuple[str | None, float]:
     return best, (top - second) / max(top, 1)
 
 
+def hits(text: str, lang: str) -> int:
+    """How many marker words of `lang` the text contains."""
+    return sum(w.lower() in _STOPWORDS.get(lang, ()) for w in _WORD.findall(text or ""))
+
+
 def matches(text: str, expected: str) -> bool | None:
     """True/False when the check is confident, None when the text is too short to tell."""
     lang, margin = detect(text)

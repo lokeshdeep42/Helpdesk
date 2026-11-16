@@ -69,6 +69,11 @@ def decide(ticket: dict, llm: JsonLLM, faq: Faq, *, min_confidence: float = 0.75
             "Automatic triage failed for this ticket (model error). Please read and handle it manually."), audit)
 
     d = policy.normalise(raw)
+    # Language is checked by code too: a clearly English or German ticket is not labelled Dutch.
+    detected = policy.confident_language(f"{subject}\n{body}")
+    if detected and detected != d["language"]:
+        audit["language_corrected"] = f"{d['language']} -> {detected}"
+        d["language"] = detected  # a draft in the old language now fails the draft language check
     kw = policy.keyword_triggers(f"{subject}\n{body}")
     triggers = set(d["triggers"]) | set(kw)
     audit.update({"model_action": d["action"], "model_triggers": d["triggers"], "keyword_triggers": kw,

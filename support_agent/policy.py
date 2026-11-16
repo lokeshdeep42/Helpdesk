@@ -57,8 +57,20 @@ def keyword_triggers(text: str) -> list[str]:
 
 
 def is_empty(ticket: dict) -> bool:
-    text = f"{ticket.get('subject') or ''} {ticket.get('body') or ''}"
+    subject = _REPLY_PREFIX.sub("", str(ticket.get("subject") or ""))  # "Re:" alone is not a message
+    text = f"{subject} {ticket.get('body') or ''}"
     return not any(ch.isalnum() for ch in text)  # any script counts, not only Latin
+
+
+_REPLY_PREFIX = re.compile(r"^\s*(?:(?:re|fw|fwd|aw|wg|antw|sv)\s*(?:\[\d+\])?\s*:\s*)+", re.IGNORECASE)
+
+
+def confident_language(text: str) -> str | None:
+    """The stop-word detector's answer when the signal is strong; None when unsure."""
+    lang, margin = language.detect(text)
+    if lang and margin >= 0.6 and language.hits(text, lang) >= 4:
+        return lang
+    return None
 
 
 def apply_priority_floor(priority: str, triggers: set[str]) -> str:

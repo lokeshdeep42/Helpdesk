@@ -24,6 +24,10 @@ def scrub(obj):
     return obj
 
 
+def _one_line(text: str) -> str:
+    return " ".join(str(text or "").split())
+
+
 class RunLog:
     """logs/run-<id>.jsonl: one line per ticket. logs/run-<id>.md: a readable review in English."""
 
@@ -49,8 +53,8 @@ class RunLog:
                  f"- **Customer wants:** {a.get('summary_en') or ('(empty ticket)' if a.get('rule') == 'empty' else '(no summary)')}",
                  f"- **Reason:** {p['reason']}"]
         if decision.action == "reply":
-            parts += [f"- **Draft ({p.get('language')}):** {p.get('draft_reply', '')}",
-                      f"- **Back-translation:** {a.get('back_translation_en', '')}",
+            parts += [f"- **Draft ({p.get('language')}):** {_one_line(p.get('draft_reply', ''))}",
+                      f"- **Back-translation:** {_one_line(a.get('back_translation_en', ''))}",
                       f"- **Checker:** {(a.get('check') or {}).get('explanation', '')}"]
         if decision.action == "handoff":
             parts.append(f"- **Handoff note:** {p.get('handoff_note', '')}")

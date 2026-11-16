@@ -133,8 +133,9 @@ def test_redaction_with_dots_and_hyphens_and_bad_checksum():
 def test_reply_blocked_when_ticket_language_differs_from_model_claim():
     t = {"id": "T", "subject": "Adding an employee",
          "body": "Hello, how do I add a new employee to our rota? Thanks for your help with this."}
-    d = decide(reply_decision(language="nl"), t)  # model wrongly says Dutch
-    assert d.action == "handoff" and "language check on the ticket" in d.payload["handoff_note"]
+    d = decide(reply_decision(language="nl"), t)  # model wrongly says Dutch, and drafts in Dutch
+    assert d.action == "handoff" and d.payload["language"] == "en"
+    assert "draft is not in en" in d.payload["handoff_note"]
 
 
 def test_model_returning_wrong_types_does_not_crash():
@@ -166,3 +167,22 @@ def test_malformed_check_is_retried_once_but_real_fail_is_not():
     t = {"id": "T1", "subject": "Vraag", "body": "Hoe voeg ik een medewerker toe?"}
     assert pipeline.decide(t, Flaky([garbled, ok]), FAQ).action == "reply"
     assert pipeline.decide(t, Flaky([fail, ok]), FAQ).action == "handoff"
+
+
+def test_reply_prefix_alone_is_empty():
+    assert policy.is_empty({"subject": "Re:", "body": ""})
+    assert policy.is_empty({"subject": "RE: Fwd: ", "body": "  "})
+    assert not policy.is_empty({"subject": "Re: factuur", "body": ""})
+
+
+def test_clearly_english_ticket_is_not_labelled_dutch():
+    t = {"id": "T", "subject": "URGENT app down",
+         "body": "Nobody in our three restaurants can open the app since 08:00. We get 'Error 503'. "
+                 "Staff cannot clock in and the lunch shift starts in an hour."}
+    d = decide(reply_decision(action="handoff", language="nl", priority="P1"), t)
+    assert d.payload["language"] == "en" and d.audit["language_corrected"] == "nl -> en"
+
+
+def test_short_dutch_ticket_keeps_model_language():
+    t = {"id": "T", "subject": "Onderhoud", "body": "Is er vanavond onderhoud gepland?"}
+    assert decide(reply_decision(action="handoff", language="nl"), t).payload["language"] == "nl"

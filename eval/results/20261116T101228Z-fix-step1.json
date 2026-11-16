@@ -1,0 +1,287 @@
+{
+ "tag": "after",
+ "summary": {
+  "examples": 10,
+  "unsafe": 0,
+  "faq_questions_answered_well": "5/6",
+  "over_escalated": 1,
+  "language_accuracy": "10/10",
+  "category_accuracy": "10/10",
+  "priority_accuracy": "10/10",
+  "action_accuracy": "9/10",
+  "priority_within_one": "10/10",
+  "cost": {
+   "model": "qwen/qwen3.8-27b",
+   "llm_calls": 15,
+   "input_tokens": 28460,
+   "output_tokens": 3411,
+   "avg_input_per_ticket": 2846,
+   "avg_output_per_ticket": 341,
+   "eur_per_mtok_in": 0.0,
+   "eur_per_mtok_out": 0.0,
+   "eur_per_100_tickets": 0.0
+  }
+ },
+ "rows": [
+  {
+   "id": "E01",
+   "expected": {
+    "language": "en",
+    "category": "bug",
+    "priority": "P3",
+    "action": "reply"
+   },
+   "got": {
+    "language": "en",
+    "category": "bug",
+    "priority": "P3",
+    "action": "reply"
+   },
+   "label_reason": "English ticket. FAQ F12 covers it: the app needs iOS 16 or later, so we can answer in English without a human.",
+   "our_reason": "The help centre explicitly states the app requires iOS 16+, which explains why the app crashes on the customer's iOS 15 device. This is a known limitation, not an unexplained bug, so a reply is appropriate.",
+   "override": null,
+   "language_ok": true,
+   "category_ok": true,
+   "priority_ok": true,
+   "action_ok": true,
+   "priority_off_by_one": true,
+   "unsafe": false,
+   "faq_match": true,
+   "draft_language_ok": true,
+   "draft": "Hi,\n\nThanks for reaching out. The Roosterly mobile app requires iOS 16 or later. Since your iPhone 8 is running iOS 15, the app is not supported on that device, which explains the crashes.\n\nPlease let us know if you have any other questions.\n\nTeam Roosterly",
+   "back_translation_en": "Hi, Thanks for reaching out. The Roosterly mobile app requires iOS 16 or later. Since your iPhone 8 is running iOS 15, the app is not supported on that device, which explains the crashes. Please let us know if you have any other questions. Team Roosterly"
+  },
+  {
+   "id": "E02",
+   "expected": {
+    "language": "nl",
+    "category": "billing",
+    "priority": "P4",
+    "action": "reply"
+   },
+   "got": {
+    "language": "nl",
+    "category": "billing",
+    "priority": "P4",
+    "action": "reply"
+   },
+   "label_reason": "How to change invoice details is in FAQ F06. Reply in Dutch.",
+   "our_reason": "The help centre (F06) explicitly states how to change the VAT number for future invoices, so the ticket is fully answered. It is a standard billing question with no urgency.",
+   "override": null,
+   "language_ok": true,
+   "category_ok": true,
+   "priority_ok": true,
+   "action_ok": true,
+   "priority_off_by_one": true,
+   "unsafe": false,
+   "faq_match": true,
+   "draft_language_ok": true,
+   "draft": "Hoi,\n\nJe kunt het nieuwe btw-nummer zelf aanpassen onder Instellingen → Bedrijfsgegevens (Settings → Company details). Deze wijziging geldt voor alle toekomstige facturen.\n\nMet vriendelijke groet,\nTeam Roosterly",
+   "back_translation_en": "Hi,\n\nYou can adjust the new VAT number yourself under Settings → Company details. This change applies to all future invoices.\n\nKind regards,\nTeam Roosterly"
+  },
+  {
+   "id": "E03",
+   "expected": {
+    "language": "nl",
+    "category": "billing",
+    "priority": "P2",
+    "action": "handoff"
+   },
+   "got": {
+    "language": "nl",
+    "category": "billing",
+    "priority": "P2",
+    "action": "handoff"
+   },
+   "label_reason": "Refund request ('terugkrijgen' = get back). Client rule: refunds always go to a human.",
+   "our_reason": "The ticket is a refund request, which is an escalation trigger that must always go to a human, even if the help centre does not explicitly mention renovation closures.",
+   "override": "Client rule, always a human: refund or disputed charge",
+   "language_ok": true,
+   "category_ok": true,
+   "priority_ok": true,
+   "action_ok": true,
+   "priority_off_by_one": true,
+   "unsafe": false
+  },
+  {
+   "id": "E04",
+   "expected": {
+    "language": "nl",
+    "category": "question",
+    "priority": "P4",
+    "action": "reply"
+   },
+   "got": {
+    "language": "nl",
+    "category": "question",
+    "priority": "P4",
+    "action": "reply"
+   },
+   "label_reason": "Dutch how-to question about swapping shifts, answered by FAQ F03. Reply in Dutch.",
+   "our_reason": "The ticket is a simple how-to question fully answered by help centre entry F03. No escalation triggers apply.",
+   "override": null,
+   "language_ok": true,
+   "category_ok": true,
+   "priority_ok": true,
+   "action_ok": true,
+   "priority_off_by_one": true,
+   "unsafe": false,
+   "faq_match": true,
+   "draft_language_ok": true,
+   "draft": "Hoi,\n\nOm een dienst te ruilen, open je de betreffende dienst in de app en tik je op \"Ruil aanbieden\" (Offer swap). Collega's met dezelfde rol kunnen de ruil accepteren. De manager keurt de ruil vervolgens goed onder Rooster → Verzoeken (Rota → Requests).\n\nMet vriendelijke groet,\nTeam Roosterly",
+   "back_translation_en": "Hi,\n\nTo swap a shift, you open the relevant shift in the app and tap \"Ruil aanbieden\" (Offer swap). Colleagues with the same role can accept the swap. The manager then approves the swap under Rota → Requests.\n\nKind regards,\nTeam Roosterly"
+  },
+  {
+   "id": "E05",
+   "expected": {
+    "language": "nl",
+    "category": "feature_request",
+    "priority": "P4",
+    "action": "reply"
+   },
+   "got": {
+    "language": "nl",
+    "category": "feature_request",
+    "priority": "P4",
+    "action": "reply"
+   },
+   "label_reason": "Feature request (Google Calendar sync). Acknowledge in Dutch and point to the roadmap (F10).",
+   "our_reason": "The ticket is a feature request. The help centre (F10) provides the standard procedure for handling feature requests (roadmap link and voting), so it can be fully answered by a reply.",
+   "override": null,
+   "language_ok": true,
+   "category_ok": true,
+   "priority_ok": true,
+   "action_ok": true,
+   "priority_off_by_one": true,
+   "unsafe": false,
+   "faq_match": true,
+   "draft_language_ok": true,
+   "draft": "Hoi,\n\nDank voor je suggestie! We lezen elk idee en we hebben dit opgenomen in ons openbare roadmap op roadmap.roosterly.nl, waar je ook op dit idee kunt stemmen. Houd er rekening mee dat we geen leverdatum kunnen beloven voor individuele verzoeken.\n\nMet vriendelijke groet,\nTeam Roosterly",
+   "back_translation_en": "Hi,\n\nThanks for your suggestion! We read every idea and we have included this in our public roadmap at roadmap.roosterly.nl, where you can also vote on this idea. Please note that we cannot promise a delivery date for individual requests.\n\nKind regards,\nTeam Roosterly"
+  },
+  {
+   "id": "E06",
+   "expected": {
+    "language": "en",
+    "category": "bug",
+    "priority": "P2",
+    "action": "handoff"
+   },
+   "got": {
+    "language": "en",
+    "category": "bug",
+    "priority": "P2",
+    "action": "handoff"
+   },
+   "label_reason": "One customer blocked from publishing: P2, needs an engineer.",
+   "our_reason": "This is a bug report where the help centre does not provide an explanation for the specific error message or a workaround, so it requires human investigation.",
+   "override": "",
+   "language_ok": true,
+   "category_ok": true,
+   "priority_ok": true,
+   "action_ok": true,
+   "priority_off_by_one": true,
+   "unsafe": false
+  },
+  {
+   "id": "E07",
+   "expected": {
+    "language": "nl",
+    "category": "billing",
+    "priority": "P4",
+    "action": "reply"
+   },
+   "got": {
+    "language": "nl",
+    "category": "billing",
+    "priority": "P4",
+    "action": "reply"
+   },
+   "label_reason": "Price question answered by F05 (25 x €6 = €150 excl. VAT). Reply in Dutch.",
+   "our_reason": "The ticket is a billing question about plan pricing. The help centre (F05) explicitly states the Plus price is €6 per active employee per month, allowing us to calculate the total for 25 employees. No escalation triggers apply.",
+   "override": null,
+   "language_ok": true,
+   "category_ok": true,
+   "priority_ok": true,
+   "action_ok": true,
+   "priority_off_by_one": true,
+   "unsafe": false,
+   "faq_match": true,
+   "draft_language_ok": true,
+   "draft": "Hoi,\n\nHet Plus abonnement kost €6 per actieve medewerker per maand. Voor 25 medewerkers is dat €150 per maand (excl. btw).\n\nMet vriendelijke groet,\nTeam Roosterly",
+   "back_translation_en": "Hi,\n\nThe Plus subscription costs €6 per active employee per month. For 25 employees, that is €150 per month (excl. VAT).\n\nKind regards,\nTeam Roosterly"
+  },
+  {
+   "id": "E08",
+   "expected": {
+    "language": "nl",
+    "category": "other",
+    "priority": "P4",
+    "action": "close"
+   },
+   "got": {
+    "language": "nl",
+    "category": "other",
+    "priority": "P4",
+    "action": "close"
+   },
+   "label_reason": "Spam (crypto offer): close it.",
+   "our_reason": "The ticket is clearly spam/advertising and not a genuine customer support request, so it should be closed.",
+   "override": null,
+   "language_ok": true,
+   "category_ok": true,
+   "priority_ok": true,
+   "action_ok": true,
+   "priority_off_by_one": true,
+   "unsafe": false
+  },
+  {
+   "id": "E09",
+   "expected": {
+    "language": "nl",
+    "category": "other",
+    "priority": "P2",
+    "action": "handoff"
+   },
+   "got": {
+    "language": "nl",
+    "category": "other",
+    "priority": "P2",
+    "action": "handoff"
+   },
+   "label_reason": "GDPR access request ('inzageverzoek', AVG = Dutch GDPR): always a human.",
+   "our_reason": "The ticket is a personal data request (AVG), which is an explicit escalation trigger that must always be handled by a human, regardless of help centre content.",
+   "override": "Client rule, always a human: personal data (AVG/GDPR) request",
+   "language_ok": true,
+   "category_ok": true,
+   "priority_ok": true,
+   "action_ok": true,
+   "priority_off_by_one": true,
+   "unsafe": false
+  },
+  {
+   "id": "E10",
+   "expected": {
+    "language": "nl",
+    "category": "question",
+    "priority": "P4",
+    "action": "reply"
+   },
+   "got": {
+    "language": "nl",
+    "category": "question",
+    "priority": "P4",
+    "action": "handoff"
+   },
+   "label_reason": "Asks about planned maintenance tonight. Point to the status page (F11), in Dutch.",
+   "our_reason": "The help centre (F11) directs users to the status page for maintenance info but does not contain the specific schedule for tonight. Therefore, it cannot be fully answered by the FAQ, requiring a human to check the status page and reply.",
+   "override": "",
+   "language_ok": true,
+   "category_ok": true,
+   "priority_ok": true,
+   "action_ok": false,
+   "priority_off_by_one": true,
+   "unsafe": false
+  }
+ ]
+}

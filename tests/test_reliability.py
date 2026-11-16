@@ -192,3 +192,14 @@ def test_is_handled_ignores_empty_placeholders():
     assert not is_handled({"id": "T1", "status": "open", "handling": {"action": "reply"}})
     assert not is_handled({"id": "T1", "handling": {}, "decision": None})
     assert is_handled({"id": "T1", "handling": {"action": "reply"}})
+
+
+def test_is_handled_matches_real_api_shape():
+    from support_agent.helpdesk import is_handled
+    assert not is_handled({"id": "T001", "handled": None, "subject": "x"})
+    assert is_handled({"id": "T001", "handled": {"action": "reply", "at": "2026-11-16T10:00:00+00:00"}})
+
+
+def test_think_block_is_stripped():
+    from support_agent.llm import parse_json_object
+    assert parse_json_object('<think>hmm {"a": 2}</think>\n{"a": 1}') == {"a": 1}

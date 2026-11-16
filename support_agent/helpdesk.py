@@ -180,6 +180,9 @@ def is_handled(ticket: dict) -> bool:
     if not isinstance(ticket, dict):
         return False
     inner = ticket.get("ticket") if isinstance(ticket.get("ticket"), dict) else ticket
+    if "handled" in inner and "status" not in inner:
+        # The real API: "handled": null while the ticket is open, filled in once it is handled.
+        return inner["handled"] not in (None, False, {}, "")
     status = str(inner.get("status") or ticket.get("status") or "").lower()
     if status:
         return status != "open"

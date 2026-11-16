@@ -89,8 +89,11 @@ class OpenAICompatLLM:
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
+_THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
 def parse_json_object(text: str) -> dict:
-    cleaned = _FENCE.sub("", text).strip()
+    cleaned = _FENCE.sub("", _THINK.sub("", text)).strip()  # reasoning models may prepend <think>…</think>
     try:
         obj = json.loads(cleaned)
     except json.JSONDecodeError:

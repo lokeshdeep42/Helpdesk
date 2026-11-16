@@ -24,14 +24,22 @@ def _client(s) -> HelpdeskClient:
 
 
 def _llm(s):
-    from .llm import OpenAICompatLLM
-    return OpenAICompatLLM(s.llm_base_url, s.llm_api_key, s.llm_model, min_interval=s.llm_min_interval)
+    from .llm import build_llm
+    return build_llm(s.providers)
 
 
 def _prices(s) -> dict:
-    prices = {s.verifier_model: (s.verifier_price_in_per_mtok, s.verifier_price_out_per_mtok)}
-    prices[s.llm_model] = (s.price_in_per_mtok, s.price_out_per_mtok)  # main model wins if they are the same
-    return prices
+    from .llm import prices_for
+    return prices_for(s.providers)
+
+
+def _chain(s) -> str:
+    return " -> ".join(f"{p.name} ({p.model} / checker {p.verifier_model})" for p in s.providers)
+
+
+def _report_fallbacks(llm) -> None:
+    for key, why in getattr(llm, "down", {}).items():
+        print(f"llm: {key} was unavailable this run: {why}", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,13 +74,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "eval":
             from .evaluate import run_eval
             examples = client.examples()
-            print(f"eval '{args.tag}' on {len(examples)} examples with {s.llm_model}")
+            print(f"eval '{args.tag}' on {len(examples)} examples with {_chain(s)}")
             summary = run_eval(examples, llm, faq, EVAL_DIR, args.tag, min_confidence=s.min_confidence,
                                verifier_model=s.verifier_model, prices=_prices(s),
                                currency=s.price_currency)
+            _report_fallbacks(llm)
             return 1 if summary["unsafe"] else 0
 
         from .runner import run
+        print(f"models: {_chain(s)}")
         summary = run(client, llm, faq, Journal(STATE_PATH), LOG_DIR, min_confidence=s.min_confidence,
                       verifier_model=s.verifier_model, dry_run=args.dry_run, limit=args.limit)
         u = llm.usage
@@ -81,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
             from .evaluate import cost_per_100
             c = cost_per_100(u.by_model, summary["open"], _prices(s), s.price_currency)
             print("cost: " + "; ".join(c["calculation"]))
+        _report_fallbacks(llm)
         return 1 if summary["failed"] else 0
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)

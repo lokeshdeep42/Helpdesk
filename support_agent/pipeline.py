@@ -58,6 +58,8 @@ def decide(ticket: dict, llm: JsonLLM, faq: Faq, *, min_confidence: float = 0.75
     # 3. The model decides, working on the Dutch text directly.
     try:
         raw = llm.complete_json(*decide_messages(faq.text, ticket, subject, body))
+        if getattr(llm, "last_used", ""):
+            audit["drafted_by"] = llm.last_used  # with fallbacks, which provider made this decision
     except LLMUnavailable:
         raise  # no model right now: leave the ticket open for the next run, do not send a fallback
     except LLMError as exc:  # the model answered with garbage: a human should read this ticket
@@ -126,6 +128,8 @@ def decide(ticket: dict, llm: JsonLLM, faq: Faq, *, min_confidence: float = 0.75
                 # Malformed check (e.g. a misspelt key): ask once more. A real "fail" is never retried.
                 audit["check_retried"] = True
                 verdict = llm.complete_json(*msgs, model=verifier_model)
+            if getattr(llm, "last_used", ""):
+                audit["checked_by"] = llm.last_used
             audit["back_translation_en"] = pii.redact(str(verdict.get("back_translation_en", "")))[0]
             audit["check"] = {k: verdict.get(k) for k in ("verdict", "draft_language", "answers_the_question",
                                                           "unsupported_claims", "unsafe_content", "explanation")}

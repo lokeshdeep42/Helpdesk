@@ -40,13 +40,18 @@ class Usage:
     calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    by_model: dict = field(default_factory=dict)  # model -> {"calls", "input_tokens", "output_tokens"}
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
-    def add(self, inp: int, out: int) -> None:
+    def add(self, inp: int, out: int, model: str = "") -> None:
         with self._lock:
             self.calls += 1
             self.input_tokens += inp
             self.output_tokens += out
+            m = self.by_model.setdefault(model, {"calls": 0, "input_tokens": 0, "output_tokens": 0})
+            m["calls"] += 1
+            m["input_tokens"] += inp
+            m["output_tokens"] += out
 
 
 class OpenAICompatLLM:
@@ -80,7 +85,8 @@ class OpenAICompatLLM:
             self._pace()
             resp = self._create(dict(model=model or self.model, messages=messages, temperature=self.temperature))
             if getattr(resp, "usage", None):
-                self.usage.add(resp.usage.prompt_tokens or 0, resp.usage.completion_tokens or 0)
+                self.usage.add(resp.usage.prompt_tokens or 0, resp.usage.completion_tokens or 0,
+                               model or self.model)
             if not getattr(resp, "choices", None):
                 raise LLMError("LLM returned no choices")
             text = (resp.choices[0].message.content or "").strip()

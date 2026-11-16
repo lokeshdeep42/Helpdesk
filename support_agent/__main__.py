@@ -28,6 +28,12 @@ def _llm(s):
     return OpenAICompatLLM(s.llm_base_url, s.llm_api_key, s.llm_model, min_interval=s.llm_min_interval)
 
 
+def _prices(s) -> dict:
+    prices = {s.verifier_model: (s.verifier_price_in_per_mtok, s.verifier_price_out_per_mtok)}
+    prices[s.llm_model] = (s.price_in_per_mtok, s.price_out_per_mtok)  # main model wins if they are the same
+    return prices
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="support_agent")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -62,8 +68,8 @@ def main(argv: list[str] | None = None) -> int:
             examples = client.examples()
             print(f"eval '{args.tag}' on {len(examples)} examples with {s.llm_model}")
             summary = run_eval(examples, llm, faq, EVAL_DIR, args.tag, min_confidence=s.min_confidence,
-                               verifier_model=s.verifier_model, price_in=s.price_in_per_mtok,
-                               price_out=s.price_out_per_mtok)
+                               verifier_model=s.verifier_model, prices=_prices(s),
+                               currency=s.price_currency)
             return 1 if summary["unsafe"] else 0
 
         from .runner import run
@@ -71,6 +77,10 @@ def main(argv: list[str] | None = None) -> int:
                       verifier_model=s.verifier_model, dry_run=args.dry_run, limit=args.limit)
         u = llm.usage
         print(f"llm: {u.calls} calls, {u.input_tokens} input + {u.output_tokens} output tokens")
+        if summary["open"]:
+            from .evaluate import cost_per_100
+            c = cost_per_100(u.by_model, summary["open"], _prices(s), s.price_currency)
+            print("cost: " + "; ".join(c["calculation"]))
         return 1 if summary["failed"] else 0
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)

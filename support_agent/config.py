@@ -31,6 +31,9 @@ class Settings:
     llm_min_interval: float
     price_in_per_mtok: float
     price_out_per_mtok: float
+    verifier_price_in_per_mtok: float
+    verifier_price_out_per_mtok: float
+    price_currency: str
     min_confidence: float
 
 
@@ -52,6 +55,9 @@ def load_settings(need_helpdesk: bool = True, need_llm: bool = True) -> Settings
         llm_min_interval=float(_get("LLM_MIN_INTERVAL", "0") or 0),
         price_in_per_mtok=float(_get("PRICE_IN_PER_MTOK", "0") or 0),
         price_out_per_mtok=float(_get("PRICE_OUT_PER_MTOK", "0") or 0),
+        verifier_price_in_per_mtok=float(_get("VERIFIER_PRICE_IN_PER_MTOK") or _get("PRICE_IN_PER_MTOK", "0") or 0),
+        verifier_price_out_per_mtok=float(_get("VERIFIER_PRICE_OUT_PER_MTOK") or _get("PRICE_OUT_PER_MTOK", "0") or 0),
+        price_currency=_get("PRICE_CURRENCY", "USD") or "USD",
         min_confidence=float(_get("MIN_CONFIDENCE", "0.75") or 0.75),
     )
     missing = []

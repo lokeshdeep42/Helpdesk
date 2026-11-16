@@ -186,3 +186,12 @@ def test_clearly_english_ticket_is_not_labelled_dutch():
 def test_short_dutch_ticket_keeps_model_language():
     t = {"id": "T", "subject": "Onderhoud", "body": "Is er vanavond onderhoud gepland?"}
     assert decide(reply_decision(action="handoff", language="nl"), t).payload["language"] == "nl"
+
+
+def test_cost_per_100_tickets_calculation():
+    from support_agent.evaluate import cost_per_100
+    by_model = {"a": {"calls": 10, "input_tokens": 30_000, "output_tokens": 3_000},
+                "b": {"calls": 5, "input_tokens": 10_000, "output_tokens": 5_000}}
+    c = cost_per_100(by_model, 10, {"a": (0.80, 4.00), "b": (0.15, 0.60)}, "USD")
+    # a: 100 x (3000 x 0.80 + 300 x 4.00) / 1M = 0.36 ; b: 100 x (1000 x 0.15 + 500 x 0.60) / 1M = 0.045
+    assert c["per_100_tickets"] == 0.405

@@ -60,8 +60,8 @@ def summarise(rows: list[dict]) -> dict:
 
 
 def run_eval(examples: list[dict], llm: OpenAICompatLLM, faq: Faq, out_dir: Path, tag: str, *,
-             min_confidence: float, verifier_model: str | None, price_in: float, price_out: float,
-             echo=print) -> dict:
+             min_confidence: float, verifier_model: str | None, prices: dict[str, tuple[float, float]],
+             currency: str = "USD", echo=print) -> dict:
     rows = []
     for ex in examples:
         ticket = {k: ex.get(k) for k in ("id", "subject", "body", "channel", "customer_plan")}
@@ -73,14 +73,7 @@ def run_eval(examples: list[dict], llm: OpenAICompatLLM, faq: Faq, out_dir: Path
              f"{'  UNSAFE' if row['unsafe'] else ''}")
 
     summary = summarise(rows)
-    u = llm.usage
-    per_ticket_in, per_ticket_out = u.input_tokens / max(len(rows), 1), u.output_tokens / max(len(rows), 1)
-    cost_100 = 100 * (per_ticket_in * price_in + per_ticket_out * price_out) / 1_000_000
-    summary["cost"] = {"model": llm.model, "llm_calls": u.calls, "input_tokens": u.input_tokens,
-                       "output_tokens": u.output_tokens, "avg_input_per_ticket": round(per_ticket_in),
-                       "avg_output_per_ticket": round(per_ticket_out),
-                       "eur_per_mtok_in": price_in, "eur_per_mtok_out": price_out,
-                       "eur_per_100_tickets": round(cost_100, 4)}
+    summary["cost"] = cost_per_100(llm.usage.by_model, len(rows), prices, currency)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -93,13 +86,30 @@ def run_eval(examples: list[dict], llm: OpenAICompatLLM, faq: Faq, out_dir: Path
     return summary
 
 
+def cost_per_100(by_model: dict, n_tickets: int, prices: dict[str, tuple[float, float]],
+                 currency: str) -> dict:
+    """Measured tokens per ticket, per model, times that model's price."""
+    total, calc, models = 0.0, [], {}
+    for model, u in by_model.items():
+        p_in, p_out = prices.get(model, (0.0, 0.0))
+        avg_in, avg_out = u["input_tokens"] / max(n_tickets, 1), u["output_tokens"] / max(n_tickets, 1)
+        cost = 100 * (avg_in * p_in + avg_out * p_out) / 1_000_000
+        total += cost
+        models[model] = {**u, "avg_input_per_ticket": round(avg_in), "avg_output_per_ticket": round(avg_out),
+                         "price_in_per_mtok": p_in, "price_out_per_mtok": p_out, "per_100_tickets": round(cost, 4)}
+        calc.append(f"{model}: 100 x ({avg_in:.0f} in x {p_in} + {avg_out:.0f} out x {p_out}) / 1M = "
+                    f"{currency} {cost:.4f}")
+    calc.append(f"total per 100 tickets: {currency} {total:.4f}")
+    return {"currency": currency, "per_100_tickets": round(total, 4), "models": models, "calculation": calc}
+
+
 def _markdown(tag: str, s: dict, rows: list[dict]) -> str:
     lines = [f"# Eval: {tag}", "", "| metric | value |", "|---|---|"]
     lines += [f"| {k} | {v} |" for k, v in s.items() if k != "cost"]
     c = s["cost"]
-    lines += [f"| cost per 100 tickets | EUR {c['eur_per_100_tickets']} ({c['avg_input_per_ticket']} in + "
-              f"{c['avg_output_per_ticket']} out tokens/ticket, {c['model']}) |", "",
-              "| id | expected (lang/cat/prio/action) | got | unsafe | our override |", "|---|---|---|---|---|"]
+    lines += [f"| cost per 100 tickets | {c['currency']} {c['per_100_tickets']} |", "", "Cost calculation:", ""]
+    lines += [f"- {line}" for line in c["calculation"]]
+    lines += ["", "| id | expected (lang/cat/prio/action) | got | unsafe | our override |", "|---|---|---|---|---|"]
     for r in rows:
         e, g = r["expected"], r["got"]
         lines.append(f"| {r['id']} | {e['language']}/{e['category']}/{e['priority']}/{e['action']} | "

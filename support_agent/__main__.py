@@ -16,6 +16,7 @@ from .config import EVAL_DIR, LOG_DIR, STATE_PATH, ConfigError, load_settings
 from .faq import load_faq
 from .helpdesk import HelpdeskClient, HelpdeskError
 from .journal import Journal
+from .llm import LLMUnavailable
 
 
 def _client(s) -> HelpdeskClient:
@@ -76,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except HelpdeskError as exc:
         print(f"helpdesk error: {exc}", file=sys.stderr)
+        return 1
+    except LLMUnavailable as exc:
+        print(f"model unavailable (quota or outage), nothing was recorded: {exc}", file=sys.stderr)
         return 1
 
 

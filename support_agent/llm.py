@@ -13,7 +13,22 @@ from typing import Protocol
 
 
 class LLMError(RuntimeError):
-    pass
+    """The model answered, but not usefully (invalid output). The ticket goes to a human."""
+
+
+class LLMUnavailable(LLMError):
+    """The model could not be reached (quota, rate limit, outage). The ticket must stay open:
+    a fallback handoff would mark it handled with a useless note."""
+
+
+_UNAVAILABLE = ("RateLimitError", "APIConnectionError", "APITimeoutError", "InternalServerError",
+                "ServiceUnavailableError", "AuthenticationError", "PermissionDeniedError")
+
+
+def _wrap(exc: Exception) -> LLMError:
+    name = type(exc).__name__
+    msg = f"LLM call failed: {name}: {str(exc)[:200]}"
+    return LLMUnavailable(msg) if name in _UNAVAILABLE else LLMError(msg)
 
 
 class JsonLLM(Protocol):
@@ -50,12 +65,13 @@ class OpenAICompatLLM:
         try:
             return self._client.chat.completions.create(response_format={"type": "json_object"}, **kwargs)
         except Exception as exc:  # some providers reject response_format; then try plain text once
-            if "response_format" not in str(exc).lower() and "json" not in str(exc).lower():
-                raise LLMError(f"LLM call failed: {type(exc).__name__}: {str(exc)[:200]}") from exc
+            if type(exc).__name__ != "BadRequestError" or not any(
+                    w in str(exc).lower() for w in ("response_format", "json")):
+                raise _wrap(exc) from exc
         try:
             return self._client.chat.completions.create(**kwargs)
         except Exception as exc:
-            raise LLMError(f"LLM call failed: {type(exc).__name__}: {str(exc)[:200]}") from exc
+            raise _wrap(exc) from exc
 
     def complete_json(self, system: str, user: str, *, model: str | None = None) -> dict:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]

@@ -10,7 +10,7 @@ from . import pii, pipeline
 from .faq import Faq
 from .helpdesk import AlreadyHandled, HelpdeskClient, HelpdeskError, is_handled
 from .journal import Journal, content_hash
-from .llm import JsonLLM
+from .llm import JsonLLM, LLMUnavailable
 
 
 def scrub(obj):
@@ -46,7 +46,7 @@ class RunLog:
         p, a = decision.payload, decision.audit
         parts = [f"## {decision.ticket_id}: {decision.action.upper()} · {p['category']} · {p['priority']} · "
                  f"{p['language']} · confidence {p.get('confidence')} · {outcome}",
-                 f"- **Customer wants:** {a.get('summary_en', '(empty ticket)')}",
+                 f"- **Customer wants:** {a.get('summary_en') or ('(empty ticket)' if a.get('rule') == 'empty' else '(no summary)')}",
                  f"- **Reason:** {p['reason']}"]
         if decision.action == "reply":
             parts += [f"- **Draft ({p.get('language')}):** {p.get('draft_reply', '')}",
@@ -110,10 +110,18 @@ def run(client: HelpdeskClient, llm: JsonLLM, faq: Faq, journal: Journal, log_di
             # otherwise (connection kept failing) it stays 'sending': the next run looks it up first
         _finish(log, decision, outcome, started, summary, echo)
 
-    for ticket in tickets:
+    for n, ticket in enumerate(tickets):
         started = time.monotonic()
         try:
             handle(ticket, started)
+        except LLMUnavailable as exc:
+            # No model (quota, outage): stop instead of sending useless fallbacks. Nothing was sent for
+            # this ticket or the ones after it, so they stay open; run again later to continue.
+            summary["failed"] += 1
+            summary["stopped_early"] = f"model unavailable, {len(tickets) - n} ticket(s) left open"
+            log.line({"ticket": str(ticket.get("id")), "outcome": f"not sent: {exc}"[:300]})
+            echo(f"  STOPPED: {exc} -- {len(tickets) - n} ticket(s) left open; re-run later to continue")
+            break
         except Exception as exc:  # one bad ticket must never stop the others
             summary["failed"] += 1
             tid = str(ticket.get("id"))

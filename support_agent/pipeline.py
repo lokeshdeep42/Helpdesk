@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 from . import language, pii, policy
 from .faq import Faq
-from .llm import JsonLLM, LLMError
+from .llm import JsonLLM, LLMError, LLMUnavailable
 from .prompts import decide_messages, verify_messages
 
 _TRIGGER_LABEL = {
@@ -58,7 +58,9 @@ def decide(ticket: dict, llm: JsonLLM, faq: Faq, *, min_confidence: float = 0.75
     # 3. The model decides, working on the Dutch text directly.
     try:
         raw = llm.complete_json(*decide_messages(faq.text, ticket, subject, body))
-    except LLMError as exc:
+    except LLMUnavailable:
+        raise  # no model right now: leave the ticket open for the next run, do not send a fallback
+    except LLMError as exc:  # the model answered with garbage: a human should read this ticket
         lang_guess = language.detect(f"{subject} {body}")[0] or "nl"
         audit["error"] = str(exc)[:200]
         return Decision(tid, "handoff", _payload(
@@ -110,7 +112,10 @@ def decide(ticket: dict, llm: JsonLLM, faq: Faq, *, min_confidence: float = 0.75
     verdict = None
     if d["draft_reply"]:
         try:
-            msgs = verify_messages(faq.text, ticket, subject, body, d["language"], d["draft_reply"])
+            # The checker only sees the entries the draft claims to use: anything else is unsupported.
+            cited = "\n\n".join(f"## {f} · {faq.entries[f]}" for f in d["faq_ids"] if f in faq.entries)
+            msgs = verify_messages(cited or "(no help-centre entry cited)", ticket, subject, body,
+                                   d["language"], d["draft_reply"])
             verdict = llm.complete_json(*msgs, model=verifier_model)
             if str(verdict.get("verdict", "")).lower() not in ("pass", "fail"):
                 # Malformed check (e.g. a misspelt key): ask once more. A real "fail" is never retried.
@@ -119,6 +124,8 @@ def decide(ticket: dict, llm: JsonLLM, faq: Faq, *, min_confidence: float = 0.75
             audit["back_translation_en"] = pii.redact(str(verdict.get("back_translation_en", "")))[0]
             audit["check"] = {k: verdict.get(k) for k in ("verdict", "draft_language", "answers_the_question",
                                                           "unsupported_claims", "unsafe_content", "explanation")}
+        except LLMUnavailable:
+            raise
         except LLMError as exc:
             audit["check_error"] = str(exc)[:200]
     blockers = policy.reply_blockers(d, faq, verdict, min_confidence, ticket_text=f"{subject}\n{body}")

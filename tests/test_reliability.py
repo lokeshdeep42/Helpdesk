@@ -203,3 +203,20 @@ def test_is_handled_matches_real_api_shape():
 def test_think_block_is_stripped():
     from support_agent.llm import parse_json_object
     assert parse_json_object('<think>hmm {"a": 2}</think>\n{"a": 1}') == {"a": 1}
+
+
+def test_model_unavailable_stops_the_run_and_sends_nothing(tmp_path):
+    from support_agent.llm import LLMUnavailable
+    desk, client, _ = make(4)
+    calls = {"n": 0}
+
+    def script(user):
+        calls["n"] += 1
+        if calls["n"] >= 3:  # quota runs out at the third ticket
+            raise LLMUnavailable("RateLimitError: tokens per day")
+        return reply_decision()
+
+    summary = runner.run(client, FakeLLM(script), load_faq(), Journal(tmp_path / "j.json"), tmp_path,
+                         min_confidence=0.75, **QUIET)
+    assert summary["sent"] == 2 and "left open" in summary["stopped_early"]
+    assert sorted(desk.handled) == ["T001", "T002"]   # no fallback handoffs for T003/T004

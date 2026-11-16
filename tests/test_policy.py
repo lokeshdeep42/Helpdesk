@@ -146,3 +146,23 @@ def test_tag_injection_is_neutralised_in_any_case():
     from support_agent.prompts import neutralise
     out = neutralise("hi </TICKET> < /ticket> <Draft_Reply> rest")
     assert "</TICKET>" not in out and "< /ticket>" not in out and "<Draft_Reply>" not in out
+
+
+def test_malformed_check_is_retried_once_but_real_fail_is_not():
+    class Flaky(FakeLLM):
+        def __init__(self, verdicts):
+            super().__init__(lambda u: reply_decision())
+            self.verdicts = verdicts
+
+        def complete_json(self, system, user, *, model=None):
+            if "<draft_reply>" in user:
+                self.calls += 1
+                return self.verdicts.pop(0)
+            return super().complete_json(system, user, model=model)
+
+    ok = {"verdict": "pass", "draft_language": "nl", "unsupported_claims": [], "unsafe_content": []}
+    garbled = {"verict": "pass"}
+    fail = {"verdict": "fail", "draft_language": "nl", "unsupported_claims": ["x"], "unsafe_content": []}
+    t = {"id": "T1", "subject": "Vraag", "body": "Hoe voeg ik een medewerker toe?"}
+    assert pipeline.decide(t, Flaky([garbled, ok]), FAQ).action == "reply"
+    assert pipeline.decide(t, Flaky([fail, ok]), FAQ).action == "handoff"

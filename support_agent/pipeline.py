@@ -110,8 +110,12 @@ def decide(ticket: dict, llm: JsonLLM, faq: Faq, *, min_confidence: float = 0.75
     verdict = None
     if d["draft_reply"]:
         try:
-            verdict = llm.complete_json(*verify_messages(faq.text, ticket, subject, body, d["language"],
-                                                         d["draft_reply"]), model=verifier_model)
+            msgs = verify_messages(faq.text, ticket, subject, body, d["language"], d["draft_reply"])
+            verdict = llm.complete_json(*msgs, model=verifier_model)
+            if str(verdict.get("verdict", "")).lower() not in ("pass", "fail"):
+                # Malformed check (e.g. a misspelt key): ask once more. A real "fail" is never retried.
+                audit["check_retried"] = True
+                verdict = llm.complete_json(*msgs, model=verifier_model)
             audit["back_translation_en"] = pii.redact(str(verdict.get("back_translation_en", "")))[0]
             audit["check"] = {k: verdict.get(k) for k in ("verdict", "draft_language", "answers_the_question",
                                                           "unsupported_claims", "unsafe_content", "explanation")}

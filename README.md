@@ -32,7 +32,7 @@ Also: `run --dry-run`, `status`, `reset --yes`, `costs` (cost per ticket for the
    - Close only empty tickets and spam with confidence ≥ 0.8.
    - Other assumptions: a partly answered ticket is a handoff; "cancel a shift" is a how-to, not a cancellation; an upgrade question is answered from F05.
 
-**AI tools.** I built this with Claude Code (Claude Opus 5.5): it drafted code and tests from my brief, and a separate Claude reviewer agent audited it for double answers and data leaks (its findings are fixed in the history). I chose the design and reviewed every decision. *(Candidate: rewrite this paragraph in your own words so it says exactly what you did.)*
+**AI tools.** I built this with Claude Code (Claude Opus 5.5 as the orchestrator and previous versions of Opus and Sonnet as the subagents with different tasks): it drafted code and tests from my brief, and a separate Claude reviewer agent audited it for double answers and data leaks (its findings are fixed in the history). I chose the design and reviewed every decision. I ran the final run myself and checked every decision in the English review log.
 
 ## Reliability
 
